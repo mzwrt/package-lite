@@ -194,7 +194,6 @@ return view.extend({
 
         var self = this;
         
-        // uci 对象已经在全局作用域可用
         var uci = self.uci || window.uci;
         setTimeout(function() {
             self.initDOM();
@@ -222,7 +221,6 @@ return view.extend({
             executeStatus: document.querySelector('#execute_status')
         };
         
-        // 初始化状态变量
         this.logPosition = '0';
         this.logPolling = null;
         this.isRunning = false;
@@ -244,7 +242,6 @@ return view.extend({
             });
         }
         
-        // 表单变化事件 - 自动保存
         [this.dom.targetFunction, this.dom.targetDisk, this.dom.formatType].forEach(function(element) {
             if (element) {
                 element.addEventListener('change', function() {
@@ -254,65 +251,100 @@ return view.extend({
             }
         });
         
-        // 复选框特殊处理
         if (this.dom.keepConfig) {
             this.dom.keepConfig.addEventListener('click', function() {
                 self.autoSaveConfig();
             });
         }
         
-        // 初始化表单可见性
         if (this.dom.targetFunction) {
             this.updateFormVisibility();
         }
     },
-
-    // 加载设备列表
-    loadDevices: function() {
-        var self = this;
-        
+    
+loadDevices: function() {
+    var self = this;
+    
+    if (self.dom.targetDisk) {
+        var loadingOption = document.createElement('option');
+        loadingOption.value = '';
+        loadingOption.textContent = _('Loading devices...');
+        loadingOption.disabled = true;
+        loadingOption.selected = true;
+        self.dom.targetDisk.innerHTML = '';
+        self.dom.targetDisk.appendChild(loadingOption);
+    }
+    function loadDevicesWithRetry(retryCount = 0) {
         callPartExpGetDevices().then(function(response) {
-            if (!response || !response.devices || response.devices.length === 0) {
-                return;
+            if (!response) {
+                throw new Error('Empty response');
             }
-            
-            // 清空设备列表
             if (self.dom.targetDisk) {
                 self.dom.targetDisk.innerHTML = '';
-                
-                // 添加设备选项
-                response.devices.forEach(function(device) {
-                    var option = document.createElement('option');
-                    option.value = device.name;
-                    option.textContent = device.name + ' (' + device.dev + ', ' + device.size + ' MB)';
-                    self.dom.targetDisk.appendChild(option);
-                });
+                if (response.devices && response.devices.length > 0) {
+                    response.devices.forEach(function(device) {
+                        var option = document.createElement('option');
+                        option.value = device.name;
+                        option.textContent = device.name + ' (' + device.dev + ', ' + device.size + ' MB)';
+                        self.dom.targetDisk.appendChild(option);
+                    });
+                } else {
+		
+                    var noDeviceOption = document.createElement('option');
+                    noDeviceOption.value = '';
+                    noDeviceOption.textContent = _('no find device');
+                    noDeviceOption.disabled = true;
+                    noDeviceOption.selected = true;
+                    self.dom.targetDisk.appendChild(noDeviceOption);
+                }
             }
         }).catch(function(error) {
             console.error('Failed to load devices:', error);
+            
+            if (retryCount < 3) {
+                setTimeout(function() {
+                    loadDevicesWithRetry(retryCount + 1);
+                }, 1000 * (retryCount + 1));
+            } else {
+                if (self.dom.targetDisk) {
+                    self.dom.targetDisk.innerHTML = '';
+                    var errorOption = document.createElement('option');
+                    errorOption.value = '';
+                    errorOption.textContent = _('load error');
+                    errorOption.disabled = true;
+                    errorOption.selected = true;
+                    self.dom.targetDisk.appendChild(errorOption);
+                }
+                
+                ui.addNotification({
+                    title: _('load device error'),
+                    text: _('Failed to load devices:'),
+                    type: 'error',
+                    delay: 5000
+                });
+            }
         });
-    },
+    }
 
-    // 加载现有的日志文件内容
+    loadDevicesWithRetry();
+},
+
+
     loadExistingLog: function() {
         var self = this;
         
-        // 初始化时获取现有日志内容
         callPartExpGetLog('0').then(function(response) {
             if (response && response.log) {
                 var logContent = response.log.toString().trim();
                 if (logContent && self.dom.logView) {
-                    // 显示现有日志内容
                     self.dom.logView.value = logContent;
                     
-                    // 自动滚动到底部
                     setTimeout(function() {
                         if (self.dom.logView && self.dom.logView.value) {
                             self.dom.logView.scrollTop = self.dom.logView.scrollHeight;
                         }
                     }, 100);
                     
-                    // 更新日志位置
                     if (response.position) {
                         self.logPosition = response.position;
                     }
@@ -337,7 +369,6 @@ return view.extend({
                 return;
             }
             
-            // 解析配置文件
             var lines = content.split('\n');
             var config = {};
             
@@ -353,12 +384,10 @@ return view.extend({
                 }
             });
             
-            // 设置表单值
             if (self.dom.targetFunction) {
                 self.dom.targetFunction.value = config.target_function || '/opt';
             }
             if (self.dom.targetDisk && config.target_disk) {
-                // 等待设备加载完成后设置
                 setTimeout(function() {
                     if (self.dom.targetDisk) {
                         self.dom.targetDisk.value = config.target_disk;
@@ -372,10 +401,8 @@ return view.extend({
                 self.dom.formatType.value = config.format_type || '0';
             }
             
-            // 更新配置缓存
             self.configCache = config;
             
-            // 更新表单可见性
             self.updateFormVisibility();
             
         }).catch(function(error) {
@@ -384,7 +411,6 @@ return view.extend({
         });
     },
 
-    // 设置默认配置
     setDefaultConfig: function() {
         if (this.dom.targetFunction) {
             this.dom.targetFunction.value = '/opt';
@@ -405,26 +431,20 @@ return view.extend({
         };
     },
 
-    // 自动保存配置（防抖处理）
     autoSaveConfig: function() {
         var self = this;
         
-        // 清除之前的定时器
         if (this.autoSaveTimer) {
             clearTimeout(this.autoSaveTimer);
         }
-        
-        // 设置新的定时器，1.5秒后保存
         this.autoSaveTimer = setTimeout(function() {
             self.saveCurrentConfig();
         }, 1500);
     },
 
-    // 保存当前配置 
     saveCurrentConfig: function() {
         var self = this;
         
-        // 获取当前表单值
         var targetFunction = this.dom.targetFunction ? this.dom.targetFunction.value : '/opt';
         var targetDisk = this.dom.targetDisk ? this.dom.targetDisk.value : '';
         var keepConfig = this.dom.keepConfig ? this.dom.keepConfig.checked : false;
@@ -455,12 +475,10 @@ return view.extend({
                 return self.saveConfigToFile(targetFunction, targetDisk, keepConfig, formatType);
             });
         } else {
-            // 如果 RPC 不可用，直接使用文件写入
             return self.saveConfigToFile(targetFunction, targetDisk, keepConfig, formatType);
         }
     },
 
-    // 备选方案：直接写入配置文件
     saveConfigToFile: function(targetFunction, targetDisk, keepConfig, formatType) {
         var configContent = [
             '# Auto-generated by partexp',
@@ -482,11 +500,9 @@ return view.extend({
         });
     },
 
-    // 执行操作
     executeOperation: function() {
         var self = this;
         
-        // 先保存配置
         this.saveCurrentConfig();
         var target_function = this.dom.targetFunction.value;
         var target_disk = this.dom.targetDisk.value;
@@ -496,7 +512,6 @@ return view.extend({
             return;
         }
         
-        // 确认操作
         var confirmMessage = _('Are you sure you want to execute partition expansion?') + '\n\n' +
                            _('Function:') + ' ' + this.getFunctionDescription(target_function) + '\n' +
                            (target_function !== '/' ? _('Disk:') + ' ' + target_disk + '\n' : '') +
@@ -510,33 +525,26 @@ return view.extend({
             return;
         }
         
-        // 重置操作状态
         this.resetOperationState();
         
-        // 标记为新操作开始
         this.isNewOperation = true;
         
         if (this.dom.logView) {
             this.dom.logView.value = _('正在启动操作...');
         }
         
-        // 更新按钮状态
         if (this.dom.executeBtn) {
             this.dom.executeBtn.disabled = true;
             this.dom.executeBtn.textContent = _('Executing...');
         }
         
-        // 切换到执行状态
         this.switchState('executing');
         
-        // 开始进度显示
         this.updateProgress(5, _('Starting operation...'));
         
-        // 调用分区操作
         callPartExpAutopart()
             .then(function(response) {
                 if (response && response.success) {
-                    // 操作开始成功
                     self.isRunning = true;
                     self.operationComplete = false;
                     self.startLogPolling();
@@ -545,7 +553,6 @@ return view.extend({
                         self.dom.executeStatus.textContent = _('Operation started successfully');
                     }
                 } else {
-                    // 操作启动失败
                     var errorMsg = response && response.message ? response.message : _('Operation failed');
                     self.handleOperationError(errorMsg);
                 }
@@ -556,7 +563,6 @@ return view.extend({
             });
     },
 
-    // 重置操作状态
     resetOperationState: function() {
         this.logPosition = '0';
         this.isRunning = true;
@@ -566,11 +572,9 @@ return view.extend({
         this.lastPollTime = 0;
         this.currentProgress = 0;
         
-        // 重置进度条
         this.updateProgress(0, _('Starting operation...'));
     },
 
-    // 处理操作错误
     handleOperationError: function(errorMsg) {
         alert(errorMsg);
         if (this.dom.executeBtn) {
@@ -581,7 +585,6 @@ return view.extend({
         this.switchState('ready');
         this.stopLogPolling();
         
-        // 在日志中显示错误信息
         if (this.dom.logView) {
             var currentLog = this.dom.logView.value || '';
             this.dom.logView.value = currentLog + '\n\n' + _('操作失败:') + ' ' + errorMsg;
@@ -593,7 +596,6 @@ return view.extend({
         }
     },
 
-    // 更新表单可见性
     updateFormVisibility: function() {
         if (!this.dom.targetFunction || !this.dom.targetDisk || 
             !this.dom.keepConfig || !this.dom.formatType) return;
@@ -620,24 +622,20 @@ return view.extend({
         }
     },
 
-    // 检查操作状态
     checkOperationStatus: function() {
         var self = this;
         
         callPartExpGetStatus().then(function(response) {
             if (response && response.running) {
-                // 有操作在进行中
                 self.isRunning = true;
                 self.switchState('executing');
                 self.startLogPolling();
                 
-                // 禁用执行按钮
                 if (self.dom.executeBtn) {
                     self.dom.executeBtn.disabled = true;
                     self.dom.executeBtn.textContent = _('Operation in progress...');
                 }
                 
-                // 更新状态
                 if (self.dom.executeStatus) {
                     self.dom.executeStatus.textContent = _('Operation in progress...');
                 }
@@ -647,30 +645,23 @@ return view.extend({
         });
     },
 
-    // 开始轮询日志
     startLogPolling: function() {
         var self = this;
         
-        // 停止现有的轮询
         this.stopLogPolling();
         
-        // 重置状态
         this.pollErrorCount = 0;
         this.pollingStartTime = Date.now();
         this.lastPollTime = 0;
         
-        // 更新进度显示
         this.updateProgress(10, _('Operation in progress...'));
         
-        // 开始轮询
         this.logPolling = setInterval(function() {
-            // 检查是否超时（20分钟超时）
             if (Date.now() - self.pollingStartTime > 20 * 60 * 1000) {
                 console.error('Operation timeout');
                 self.stopLogPolling();
                 self.isRunning = false;
                 
-                // 显示超时信息
                 if (self.dom.logView) {
                     var currentLog = self.dom.logView.value || '';
                     self.dom.logView.value = currentLog + '\n\n[超时] 操作超过20分钟未完成，请检查系统';
@@ -704,7 +695,6 @@ return view.extend({
         
         var pollStartTime = Date.now();
         
-        // 总是从位置0开始获取完整日志内容
         callPartExpGetLog('0').then(function(response) {
             if (!response) {
                 console.error('No response from log polling');
@@ -717,7 +707,6 @@ return view.extend({
             
             self.lastPollTime = pollStartTime;
             
-            // 处理日志内容
             if (response.log !== undefined) {
                 var logContent = response.log.toString().trim();
                 
@@ -729,7 +718,6 @@ return view.extend({
                     if (logContent !== '') {
                         self.dom.logView.value = logContent;
                         
-                        // 自动滚动到底部
                         setTimeout(function() {
                             if (self.dom.logView && self.dom.logView.value) {
                                 self.dom.logView.scrollTop = self.dom.logView.scrollHeight;
@@ -738,27 +726,22 @@ return view.extend({
                     }
                 }
                 
-                // 更新进度
                 self.parseAndUpdateProgress(logContent);
                 
-                // 检查操作是否完成
                 if (self.checkOperationComplete(logContent)) {
                     self.handleOperationComplete();
                 }
             }
             
-            // 检查RPC返回的完成状态
             if (response.complete) {
                 self.handleOperationComplete();
             }
             
-            // 重置错误计数
             self.pollErrorCount = 0;
             
         }).catch(function(error) {
             console.error('Log polling error:', error);
             
-            // 如果多次失败，停止轮询
             self.pollErrorCount = (self.pollErrorCount || 0) + 1;
             if (self.pollErrorCount > 5) {
                 console.error('Too many polling errors, stopping');
@@ -770,7 +753,6 @@ return view.extend({
                     self.dom.executeBtn.disabled = false;
                     self.dom.executeBtn.textContent = _('Click to execute');
                 }
-                // 显示错误信息
                 if (self.dom.logView) {
                     var currentLog = self.dom.logView.value || '';
                     self.dom.logView.value = currentLog + '\n\n[错误] 日志轮询失败，请刷新页面查看最新状态';
@@ -784,11 +766,9 @@ return view.extend({
         });
     },
 
-    // 检查操作是否完成
     checkOperationComplete: function(logText) {
         if (!logText) return false;
         
-        // 检查日志中是否包含操作完成标记
         var completeMarkers = [
             '重启设备',
             '操作完成'
@@ -803,7 +783,6 @@ return view.extend({
         return false;
     },
 
-    // 处理操作完成
     handleOperationComplete: function() {
         if (this.operationComplete) {
             return;
@@ -813,7 +792,6 @@ return view.extend({
         this.isRunning = false;
         this.isNewOperation = false;
         
-        // 立即停止轮询
         this.stopLogPolling();
         if (this.dom.logView) {
             var currentLog = this.dom.logView.value || '';
@@ -827,28 +805,23 @@ return view.extend({
             }
         }
         
-        // 进度条显示100%
         this.updateProgress(100, _('Operation completed'));
         
-        // 启用执行按钮
         setTimeout(() => {
             if (this.dom.executeBtn) {
                 this.dom.executeBtn.disabled = false;
                 this.dom.executeBtn.textContent = _('Click to execute');
             }
             
-            // 切换回就绪状态
             setTimeout(() => {
                 this.switchState('ready');
             }, 3000);
         }, 2000);
     },
 
-    // 解析并更新进度
     parseAndUpdateProgress: function(logText) {
         if (!logText || !this.dom.executeStatus) return;
         
-        // 尝试从日志中提取进度信息
         var percent = 0;
         var statusMessage = _('Operation in progress...');
         
@@ -856,7 +829,6 @@ return view.extend({
             percent = 100;
             statusMessage = _('Operation completed');
         } else if ( logText.includes('错误') || logText.includes('error')) {
-            // 错误情况，不更新进度
             return;
         } else if (logText.includes('分区扩容和挂载到') || logText.includes('正在挂载')) {
             percent = 90;
@@ -881,38 +853,29 @@ return view.extend({
             statusMessage = _('Initializing...');
         }
         
-        // 确保进度不会倒退
         if (percent > 0) {
             this.currentProgress = Math.max(this.currentProgress || 0, percent);
         } else {
-            // 如果没有明确的进度标记，逐渐增加进度
             this.currentProgress = Math.min(90, (this.currentProgress || 0) + 1);
         }
         
-        // 更新进度显示
         this.updateProgress(this.currentProgress, statusMessage);
     },
 
-    // 更新进度显示
     updateProgress: function(percent, message) {
         if (!this.dom.progressBar || !this.dom.progressText || !this.dom.executeStatus) {
             return;
         }
         
-        // 确保百分比在有效范围内
         percent = Math.max(0, Math.min(100, percent));
         
-        // 更新进度条
         this.dom.progressBar.style.width = percent + '%';
         
-        // 更新进度文本
         this.dom.progressText.textContent = percent + '%';
         
-        // 更新状态消息
         this.dom.executeStatus.textContent = message;
     },
 
-    // 停止轮询日志
     stopLogPolling: function() {
         if (this.logPolling) {
             clearInterval(this.logPolling);
@@ -924,17 +887,14 @@ return view.extend({
     switchState: function(to) {
         if (!this.dom.stateContainer) return;
         
-        // 移除所有状态类
         this.dom.stateContainer.classList.remove(
             'state-ctl-ready',
             'state-ctl-executing'
         );
         
-        // 添加新状态类
         this.dom.stateContainer.classList.add('state-ctl-' + to);
     },
 
-    // 获取功能描述
     getFunctionDescription: function(func) {
         switch(func) {
             case '/': return _('Extend to root directory');
@@ -945,7 +905,6 @@ return view.extend({
         }
     },
 
-    // 获取格式化类型描述
     getFormatTypeDescription: function(type) {
         switch(type) {
             case '0': return _('No formatting');
@@ -956,7 +915,6 @@ return view.extend({
         }
     },
 
-    // 页面生命周期方法
     handleSaveApply: null,
     handleSave: null,
     handleReset: null
