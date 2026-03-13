@@ -34,8 +34,8 @@ jobs:
 
     - name: Initialization environment
       run : |
-        git config --global user.email "${{ secrets.GH_MAIL }}"
-        git config --global user.name "${{ secrets.GH_NAME }}"
+        git config --global user.email "58111339+mzwrt@users.noreply.github.com"
+        git config --global user.name "mzwrt"
         sudo timedatectl set-timezone "Asia/Shanghai"
         
     - name: Clone packages
