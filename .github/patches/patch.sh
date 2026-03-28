@@ -7,4 +7,6 @@ patch --no-backup-if-mismatch -p1 < $GITHUB_WORKSPACE/.github/patches/webd.patch
 patch --no-backup-if-mismatch -p1 < $GITHUB_WORKSPACE/.github/patches/netkeeper-interception.patch
 # 修复代理错误 speedtest-web.patch
 patch --no-backup-if-mismatch -p1 < $GITHUB_WORKSPACE/.github/patches/speedtest-web.patch
+# 添加 CPU 温度和使用率显示
+patch --no-backup-if-mismatch -p1 < $GITHUB_WORKSPACE/.github/patches/luci-theme-argon.patch
 exit 0
