@@ -98,7 +98,7 @@
 +
 +		// CPU temperature
 +		if (cpuTemp !== null) {
-+			fields.push(_('Temperature'));
++			fields.push(_('CPU 温度'));
 +			fields.push(cpuTemp + ' °C');
 +		}
 +
