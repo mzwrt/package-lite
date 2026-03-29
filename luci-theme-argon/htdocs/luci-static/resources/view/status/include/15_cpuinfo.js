@@ -8,9 +8,10 @@ var callSystemInfo = rpc.declare({
 	method: 'info'
 });
 
+var numHwmon = 10;
 var numZones = 10;
 
-var wifiTypePattern = /mt76|ath10k|ath11k|iwlwifi/i;
+var wifiDevicePattern = /mt76|mt79|ath10k|ath11k|iwlwifi/i;
 
 function progressbar(value, max) {
 	var vn = parseInt(value) || 0,
@@ -24,7 +25,7 @@ function progressbar(value, max) {
 }
 
 return baseclass.extend({
-	title: _('CPU'),
+	title: 'CPU',
 
 	prevIdle: 0,
 	prevTotal: 0,
@@ -32,9 +33,16 @@ return baseclass.extend({
 	load: function() {
 		var promises = [];
 
+		// hwmon: name + temp1_input
+		for (var i = 0; i < numHwmon; i++) {
+			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/hwmon/hwmon' + i + '/name']), null));
+			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/hwmon/hwmon' + i + '/temp1_input']), null));
+		}
+
+		// thermal_zone: type + temp
 		for (var i = 0; i < numZones; i++) {
-			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone' + i + '/temp']), null));
 			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone' + i + '/type']), null));
+			promises.push(L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone' + i + '/temp']), null));
 		}
 
 		promises.push(L.resolveDefault(fs.exec('/usr/bin/head', ['-1', '/proc/stat']), null));
@@ -44,18 +52,39 @@ return baseclass.extend({
 	},
 
 	render: function(data) {
-		var statResult = data[numZones * 2],
-		    systemInfo = data[numZones * 2 + 1];
+		var hwmonEnd = numHwmon * 2;
+		var zoneEnd = hwmonEnd + numZones * 2;
+		var statResult = data[zoneEnd];
+		var systemInfo = data[zoneEnd + 1];
 
-		var fields = [];
-
-		// Parse thermal zones
 		var cpuTemp = null;
-		var wifiTemp = null;
+		var wifiTemps = [];
 
+		// Parse hwmon sensors
+		for (var i = 0; i < numHwmon; i++) {
+			var nameResult = data[i * 2];
+			var tempResult = data[i * 2 + 1];
+
+			if (nameResult && nameResult.code === 0 && nameResult.stdout &&
+			    tempResult && tempResult.code === 0 && tempResult.stdout) {
+				var name = nameResult.stdout.trim();
+				var temp = parseInt(tempResult.stdout.trim());
+				if (!isNaN(temp) && temp > 0) {
+					var tempC = (temp / 1000).toFixed(1);
+
+					if (wifiDevicePattern.test(name)) {
+						wifiTemps.push({ name: name, temp: tempC });
+					} else if (cpuTemp === null) {
+						cpuTemp = tempC;
+					}
+				}
+			}
+		}
+
+		// Also parse thermal zones to fill in missing data
 		for (var i = 0; i < numZones; i++) {
-			var tempResult = data[i * 2];
-			var typeResult = data[i * 2 + 1];
+			var typeResult = data[hwmonEnd + i * 2];
+			var tempResult = data[hwmonEnd + i * 2 + 1];
 
 			if (tempResult && tempResult.code === 0 && tempResult.stdout) {
 				var temp = parseInt(tempResult.stdout.trim());
@@ -67,14 +96,16 @@ return baseclass.extend({
 						zoneType = typeResult.stdout.trim();
 					}
 
-					if (wifiTypePattern.test(zoneType)) {
-						if (wifiTemp === null) {
-							wifiTemp = tempC;
+					if (wifiDevicePattern.test(zoneType)) {
+						var found = false;
+						for (var j = 0; j < wifiTemps.length; j++) {
+							if (wifiTemps[j].name === zoneType) { found = true; break; }
 						}
-					} else {
-						if (cpuTemp === null) {
-							cpuTemp = tempC;
+						if (!found) {
+							wifiTemps.push({ name: zoneType, temp: tempC });
 						}
+					} else if (cpuTemp === null) {
+						cpuTemp = tempC;
 					}
 				}
 			}
@@ -118,6 +149,8 @@ return baseclass.extend({
 			cpuUsage = Math.min(Math.round(load1 * 100), 100);
 		}
 
+		var fields = [];
+
 		// CPU usage
 		if (cpuUsage !== null) {
 			fields.push(_('CPU usage (%)'));
@@ -130,10 +163,16 @@ return baseclass.extend({
 			fields.push(cpuTemp + ' °C');
 		}
 
-		// WiFi temperature
-		if (wifiTemp !== null) {
-			fields.push(_('WiFi 温度'));
-			fields.push(wifiTemp + ' °C');
+		// WiFi temperatures (show all)
+		for (var i = 0; i < wifiTemps.length; i++) {
+			var bandLabel = wifiTemps[i].name;
+			if (/phy0/i.test(bandLabel)) {
+				bandLabel = '2.4G';
+			} else if (/phy1/i.test(bandLabel)) {
+				bandLabel = '5G';
+			}
+			fields.push(_('WiFi 温度') + ' ' + bandLabel);
+			fields.push(wifiTemps[i].temp + ' °C');
 		}
 
 		if (fields.length === 0) {
@@ -143,3 +182,14 @@ return baseclass.extend({
 		var table = E('table', { 'class': 'table' });
 
 		for (var i = 0; i < fields.length; i += 2) {
+			table.appendChild(E('tr', { 'class': 'tr' }, [
+				E('td', { 'class': 'td left', 'width': '33%' }, [ fields[i] ]),
+				E('td', { 'class': 'td left' }, [
+					(fields[i + 1] !== null) ? fields[i + 1] : '?'
+				])
+			]));
+		}
+
+		return table;
+	}
+});
