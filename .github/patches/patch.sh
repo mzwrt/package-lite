@@ -9,4 +9,6 @@ patch --no-backup-if-mismatch -p1 < $GITHUB_WORKSPACE/.github/patches/netkeeper-
 patch --no-backup-if-mismatch -p1 < $GITHUB_WORKSPACE/.github/patches/speedtest-web.patch
 # 添加 CPU 温度和使用率显示
 patch --no-backup-if-mismatch -p1 < $GITHUB_WORKSPACE/.github/patches/luci-theme-argon.patch
+# 因官方版更新过于激进，修正mosdns 版本
+patch --no-backup-if-mismatch -p1 < $GITHUB_WORKSPACE/.github/patches/mosdns.patch
 exit 0
