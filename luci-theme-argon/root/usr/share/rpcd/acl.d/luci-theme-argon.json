@@ -4,10 +4,7 @@
         "read": {
             "uci": [ "argon" ],
             "file": {
-                "/bin/cat /sys/class/hwmon/hwmon*/name": [ "exec" ],
-                "/bin/cat /sys/class/hwmon/hwmon*/temp1_input": [ "exec" ],
                 "/bin/cat /sys/class/thermal/thermal_zone*/temp": [ "exec" ],
-                "/bin/cat /sys/class/thermal/thermal_zone*/type": [ "exec" ],
                 "/usr/bin/head -1 /proc/stat": [ "exec" ]
             }
         }
