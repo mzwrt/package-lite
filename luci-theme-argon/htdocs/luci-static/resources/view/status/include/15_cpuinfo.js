@@ -153,7 +153,7 @@ return baseclass.extend({
 
 		// CPU usage
 		if (cpuUsage !== null) {
-			fields.push(_('CPU usage (%)'));
+			fields.push(_('CPU usage') + ' (%)');
 			fields.push(progressbar(cpuUsage, 100));
 		}
 
