@@ -10,6 +10,7 @@ if not ok_lyaml then
 end
 
 local uci = require "luci.model.uci".cursor()
+local ok_jsonc, jsonc = pcall(require, "luci.jsonc")
 
 local function read_file(path)
 	local data = nixio.fs.readfile(path)
@@ -55,6 +56,75 @@ local function split_filter_words(text)
 		end
 	end
 	return items
+end
+
+local function trim(value)
+	return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function parse_csv_line(line)
+	local cols = {}
+	local cur = ""
+	local in_quote = false
+	local i = 1
+
+	while i <= #line do
+		local ch = line:sub(i, i)
+		if ch == '"' then
+			if in_quote and line:sub(i + 1, i + 1) == '"' then
+				cur = cur .. '"'
+				i = i + 1
+			else
+				in_quote = not in_quote
+			end
+		elseif ch == "," and not in_quote then
+			cols[#cols + 1] = cur
+			cur = ""
+		else
+			cur = cur .. ch
+		end
+		i = i + 1
+	end
+
+	cols[#cols + 1] = cur
+	return cols
+end
+
+local function read_clash_client_rules_csv(sid)
+	local rows = {}
+	sid = trim(sid)
+	if sid == "" then
+		return rows
+	end
+
+	local csv_path = string.format("/etc/ssrplus/clash/%s.csv", sid)
+	local raw = read_file(csv_path)
+	if not raw or raw == "" then
+		return rows
+	end
+
+	local first = true
+	for line in tostring(raw):gsub("\r", ""):gmatch("[^\n]+") do
+		local text = trim(line)
+		if text ~= "" then
+			if first and text:lower() == "enabled,client,policy,remarks,client_mac" then
+				first = false
+			else
+				local cols = parse_csv_line(line)
+				if #cols >= 4 then
+					rows[#rows + 1] = {
+						enabled = cols[1],
+						ip_addr = trim(cols[2] or ""),
+						policy_group = trim(cols[3] or ""),
+						remarks = trim(cols[4] or ""),
+						client_mac = trim(cols[5] or "")
+					}
+				end
+			end
+		end
+	end
+
+	return rows
 end
 
 local function has_proxy_sections(doc)
@@ -263,26 +333,38 @@ local function merge(raw_path, overlay_path, output_path)
 	return true
 end
 
-local function append_client_policy_rules(runtime_path)
+local function append_client_policy_rules(runtime_path, sid)
 	local doc, err = load_yaml(runtime_path)
 	if not doc then
 		io.stderr:write(err or "parse_failed", "\n")
 		return false
 	end
 
+	local valid_policies = {}
+	for _, proxy in ipairs(doc.proxies or {}) do
+		if type(proxy) == "table" and proxy.name and proxy.name ~= "" then
+			valid_policies[tostring(proxy.name)] = true
+		end
+	end
+	for _, group in ipairs(doc["proxy-groups"] or {}) do
+		if type(group) == "table" and group.name and group.name ~= "" then
+			valid_policies[tostring(group.name)] = true
+		end
+	end
+
 	local custom_rules = {}
-	uci:foreach("shadowsocksr", "clash_client_group", function(section)
+	for _, section in ipairs(read_clash_client_rules_csv(sid)) do
 		if tostring(section.enabled or "0") == "1" then
 			local ip_addr = tostring(section.ip_addr or "")
 			local policy_group = tostring(section.policy_group or "")
-			if ip_addr ~= "" and policy_group ~= "" then
+			if ip_addr ~= "" and policy_group ~= "" and valid_policies[policy_group] then
 				if not ip_addr:find("/", 1, true) then
 					ip_addr = ip_addr .. "/32"
 				end
 				custom_rules[#custom_rules + 1] = string.format("SRC-IP-CIDR,%s,%s", ip_addr, policy_group)
 			end
 		end
-	end)
+	end
 
 	if #custom_rules == 0 then
 		io.stdout:write("client_rules=0\n")
@@ -486,6 +568,76 @@ local function bool_default(value, default)
 	return bool_enabled(value)
 end
 
+local function number_or_nil(value)
+	if value == nil or value == "" then
+		return nil
+	end
+	return tonumber(value)
+end
+
+local function string_or_nil(value)
+	if value == nil or value == "" then
+		return nil
+	end
+	return tostring(value)
+end
+
+local function pick_plugin_opt(plugin_opts, ...)
+	for i = 1, select("#", ...) do
+		local key = select(i, ...)
+		local value = plugin_opts[key]
+		if value ~= nil and value ~= "" then
+			return value
+		end
+	end
+	return nil
+end
+
+local function parse_plugin_headers(plugin_opts)
+	local headers = {}
+	local raw_headers = pick_plugin_opt(plugin_opts, "headers", "header")
+
+	if raw_headers and ok_jsonc and jsonc then
+		local decoded = jsonc.parse(raw_headers)
+		if type(decoded) == "table" then
+			for key, value in pairs(decoded) do
+				headers[tostring(key)] = tostring(value)
+			end
+		end
+	end
+
+	if raw_headers and next(headers) == nil then
+		for part in tostring(raw_headers):gmatch("[^|,]+") do
+			local key, value = part:match("^%s*([^=:]+)%s*[:=]%s*(.-)%s*$")
+			if key and key ~= "" and value and value ~= "" then
+				headers[key] = value
+			end
+		end
+	end
+
+	for key, value in pairs(plugin_opts) do
+		local header_name = key:match("^headers[%.:](.+)$")
+			or key:match("^header[%.:](.+)$")
+			or key:match("^header_(.+)$")
+		if header_name and header_name ~= "" and value ~= "" then
+			headers[header_name] = value
+		end
+	end
+
+	return next(headers) and headers or nil
+end
+
+local function get_plugin_client_fingerprint(sid, plugin_opts)
+	return string_or_nil(
+		pick_plugin_opt(
+			plugin_opts,
+			"client-fingerprint",
+			"client_fingerprint",
+			"fingerprint"
+		) or get_server_field(sid, "fingerprint", "")
+	)
+end
+
 local function normalize_plugin_name(plugin)
 	local value = tostring(plugin or ""):lower()
 	if value == "" or value == "none" then
@@ -493,6 +645,18 @@ local function normalize_plugin_name(plugin)
 	end
 	if value == "simple-obfs" then
 		return "obfs-local"
+	end
+	if value == "obfs" then
+		return "obfs-local"
+	end
+	if value == "shadowtls" then
+		return "shadow-tls"
+	end
+	if value == "gost" then
+		return "gost-plugin"
+	end
+	if value == "kcp-tun" then
+		return "kcptun"
 	end
 	return value
 end
@@ -508,8 +672,8 @@ local function build_shadowsocks_plugin(proxy, sid)
 	if plugin == "obfs-local" then
 		proxy.plugin = "obfs"
 		proxy["plugin-opts"] = {
-			mode = plugin_opts.obfs or plugin_opts.mode or "http",
-			host = plugin_opts.obfs_host or plugin_opts.host or nil
+			mode = pick_plugin_opt(plugin_opts, "obfs", "mode") or "http",
+			host = string_or_nil(pick_plugin_opt(plugin_opts, "obfs-host", "obfs_host", "host"))
 		}
 		return
 	end
@@ -517,41 +681,94 @@ local function build_shadowsocks_plugin(proxy, sid)
 	if plugin == "v2ray-plugin" or plugin == "xray-plugin" then
 		proxy.plugin = "v2ray-plugin"
 		proxy["plugin-opts"] = {
-			mode = plugin_opts.mode or "websocket",
-			host = plugin_opts.host or nil,
-			path = plugin_opts.path or nil,
-			tls = bool_default(plugin_opts.tls, false),
-			mux = bool_default(plugin_opts.mux, false),
-			["skip-cert-verify"] = bool_default(plugin_opts.insecure or plugin_opts.skip_cert_verify, false)
+			mode = pick_plugin_opt(plugin_opts, "mode") or "websocket",
+			tls = bool_default(pick_plugin_opt(plugin_opts, "tls"), false),
+			fingerprint = string_or_nil(pick_plugin_opt(plugin_opts, "fingerprint")),
+			["skip-cert-verify"] = bool_default(pick_plugin_opt(plugin_opts, "skip-cert-verify", "skip_cert_verify", "insecure"), false),
+			host = string_or_nil(pick_plugin_opt(plugin_opts, "host")),
+			path = string_or_nil(pick_plugin_opt(plugin_opts, "path")),
+			mux = bool_default(pick_plugin_opt(plugin_opts, "mux"), false),
+			headers = parse_plugin_headers(plugin_opts),
+			["v2ray-http-upgrade"] = bool_default(pick_plugin_opt(plugin_opts, "v2ray-http-upgrade", "v2ray_http_upgrade"), false)
+		}
+		return
+	end
+
+	if plugin == "gost-plugin" then
+		proxy.plugin = "gost-plugin"
+		proxy["plugin-opts"] = {
+			mode = pick_plugin_opt(plugin_opts, "mode") or "websocket",
+			tls = bool_default(pick_plugin_opt(plugin_opts, "tls"), false),
+			fingerprint = string_or_nil(pick_plugin_opt(plugin_opts, "fingerprint")),
+			["skip-cert-verify"] = bool_default(pick_plugin_opt(plugin_opts, "skip-cert-verify", "skip_cert_verify", "insecure"), false),
+			host = string_or_nil(pick_plugin_opt(plugin_opts, "host")),
+			path = string_or_nil(pick_plugin_opt(plugin_opts, "path")),
+			mux = bool_default(pick_plugin_opt(plugin_opts, "mux"), false),
+			headers = parse_plugin_headers(plugin_opts)
 		}
 		return
 	end
 
 	if plugin == "shadow-tls" then
-		local host, port = split_host_port(plugin_opts.host or "")
+		local host, port = split_host_port(pick_plugin_opt(plugin_opts, "host") or "")
 		local version
 		if plugin_opts.v3 == "1" or plugin_opts.version == "3" then
 			version = 3
 		elseif plugin_opts.v2 == "1" or plugin_opts.version == "2" then
 			version = 2
+		elseif plugin_opts.v1 == "1" or plugin_opts.version == "1" then
+			version = 1
 		end
 		proxy.plugin = "shadow-tls"
+		proxy["client-fingerprint"] = get_plugin_client_fingerprint(sid, plugin_opts)
 		proxy["plugin-opts"] = {
 			host = host ~= "" and host or nil,
-			port = tonumber(port) or nil,
-			password = plugin_opts.passwd or plugin_opts.password or nil,
+			port = number_or_nil(port),
+			password = string_or_nil(pick_plugin_opt(plugin_opts, "passwd", "password")),
 			version = version
 		}
 		return
 	end
 
-	if plugin == "kcptun" or plugin == "kcp-tun" then
-		proxy.plugin = "kcp-tun"
+	if plugin == "restls" then
+		proxy.plugin = "restls"
+		proxy["client-fingerprint"] = get_plugin_client_fingerprint(sid, plugin_opts)
 		proxy["plugin-opts"] = {
-			host = plugin_opts.host or nil,
-			port = tonumber(plugin_opts.port) or nil,
-			key = plugin_opts.key or plugin_opts.passwd or plugin_opts.password or nil,
-			mode = plugin_opts.mode or nil
+			host = string_or_nil(pick_plugin_opt(plugin_opts, "host")),
+			password = string_or_nil(pick_plugin_opt(plugin_opts, "passwd", "password")),
+			["version-hint"] = string_or_nil(pick_plugin_opt(plugin_opts, "version-hint", "version_hint")),
+			["restls-script"] = string_or_nil(pick_plugin_opt(plugin_opts, "restls-script", "restls_script"))
+		}
+		return
+	end
+
+	if plugin == "kcptun" then
+		proxy.plugin = "kcptun"
+		proxy["plugin-opts"] = {
+			key = string_or_nil(pick_plugin_opt(plugin_opts, "key", "passwd", "password")),
+			crypt = string_or_nil(pick_plugin_opt(plugin_opts, "crypt")),
+			mode = string_or_nil(pick_plugin_opt(plugin_opts, "mode")),
+			conn = number_or_nil(pick_plugin_opt(plugin_opts, "conn")),
+			autoexpire = number_or_nil(pick_plugin_opt(plugin_opts, "autoexpire")),
+			scavengettl = number_or_nil(pick_plugin_opt(plugin_opts, "scavengettl")),
+			mtu = number_or_nil(pick_plugin_opt(plugin_opts, "mtu")),
+			ratelimit = number_or_nil(pick_plugin_opt(plugin_opts, "ratelimit")),
+			sndwnd = number_or_nil(pick_plugin_opt(plugin_opts, "sndwnd")),
+			rcvwnd = number_or_nil(pick_plugin_opt(plugin_opts, "rcvwnd")),
+			datashard = number_or_nil(pick_plugin_opt(plugin_opts, "datashard")),
+			parityshard = number_or_nil(pick_plugin_opt(plugin_opts, "parityshard")),
+			dscp = number_or_nil(pick_plugin_opt(plugin_opts, "dscp")),
+			nocomp = bool_default(pick_plugin_opt(plugin_opts, "nocomp"), false),
+			acknodelay = bool_default(pick_plugin_opt(plugin_opts, "acknodelay"), false),
+			nodelay = number_or_nil(pick_plugin_opt(plugin_opts, "nodelay")),
+			interval = number_or_nil(pick_plugin_opt(plugin_opts, "interval")),
+			resend = number_or_nil(pick_plugin_opt(plugin_opts, "resend")),
+			sockbuf = number_or_nil(pick_plugin_opt(plugin_opts, "sockbuf")),
+			smuxver = number_or_nil(pick_plugin_opt(plugin_opts, "smuxver")),
+			smuxbuf = number_or_nil(pick_plugin_opt(plugin_opts, "smuxbuf")),
+			framesize = number_or_nil(pick_plugin_opt(plugin_opts, "framesize")),
+			streambuf = number_or_nil(pick_plugin_opt(plugin_opts, "streambuf")),
+			keepalive = number_or_nil(pick_plugin_opt(plugin_opts, "keepalive"))
 		}
 		return
 	end
@@ -567,10 +784,9 @@ local function build_kcptun_plugin(proxy, sid)
 		return
 	end
 
-	proxy.plugin = "kcp-tun"
+	proxy.plugin = "kcptun"
+	proxy.port = tonumber(get_server_field(sid, "kcp_port", "0")) or proxy.port
 	proxy["plugin-opts"] = {
-		host = get_server_field(sid, "server", ""),
-		port = tonumber(get_server_field(sid, "kcp_port", "0")) or nil,
 		key = get_server_field(sid, "kcp_password", ""),
 		mode = "fast",
 		mtu = 1350
@@ -676,7 +892,7 @@ local function build_shadowsocks_server_doc(sid)
 		listener.obfs = plugin_opts.obfs or plugin_opts.mode or "http"
 		listener.obfs_opts = {
 			mode = plugin_opts.obfs or plugin_opts.mode or "http",
-			host = plugin_opts.obfs_host or plugin_opts.host or nil
+			host = plugin_opts["obfs-host"] or plugin_opts.obfs_host or plugin_opts.host or nil
 		}
 	end
 
@@ -710,7 +926,7 @@ elseif action == "prepare" then
 elseif action == "merge" then
 	os.exit(merge(arg[2], arg[3], arg[4]) and 0 or 1)
 elseif action == "append_client_policy_rules" then
-	os.exit(append_client_policy_rules(arg[2]) and 0 or 1)
+	os.exit(append_client_policy_rules(arg[2], arg[3]) and 0 or 1)
 elseif action == "tuic" then
 	os.exit(generate_tuic_runtime(arg[2], arg[3], arg[4], arg[5], arg[6]) and 0 or 1)
 elseif action == "ss" then
@@ -718,6 +934,6 @@ elseif action == "ss" then
 elseif action == "ss_server" then
 	os.exit(generate_shadowsocks_server(arg[2], arg[3]) and 0 or 1)
 else
-	io.stderr:write("usage: clash_yaml.lua validate <yaml> | filter <yaml> <words> | prepare <input> <output> | merge <raw> <overlay> <output> | append_client_policy_rules <runtime_yaml> | tuic <sid> <output> <local_port> [socks_port] [mode] | ss <sid> <output> <local_port> [socks_port] [mode] | ss_server <sid> <output>\n")
+	io.stderr:write("usage: clash_yaml.lua validate <yaml> | filter <yaml> <words> | prepare <input> <output> | merge <raw> <overlay> <output> | append_client_policy_rules <runtime_yaml> <sid> | tuic <sid> <output> <local_port> [socks_port] [mode] | ss <sid> <output> <local_port> [socks_port] [mode] | ss_server <sid> <output>\n")
 	os.exit(1)
 end
