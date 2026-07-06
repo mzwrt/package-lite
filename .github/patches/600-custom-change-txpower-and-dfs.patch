@@ -41,7 +41,7 @@
 ###############################################################################################
 ######################### CA router Wi-Fi channel adjustment ##################################
 ###############################################################################################
-@@ -403,12 +494,9 @@ country BZ: DFS-JP
+@@ -403,12 +402,9 @@ country BZ: DFS-JP
  # https://www.ic.gc.ca/eic/site/smt-gst.nsf/vwapj/rss-247-i2-e.pdf/$file/rss-247-i2-e.pdf
  # https://www.ic.gc.ca/eic/site/smt-gst.nsf/eng/sf11750.html (6 GHz operation)
  country CA: DFS-FCC
