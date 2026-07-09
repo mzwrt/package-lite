@@ -1,9 +1,34 @@
-<%
-    local fs = require "luci.openclash"
-    local plugin_version = fs.oc_version()
-%>
 <head>
-<link rel="stylesheet" href="/luci-static/resources/openclash/css/oc.css?v=<%=plugin_version%>">
+<style>
+
+.tabs > li {
+    vertical-align: middle !important;;
+}
+
+.tool_label:hover {
+	border-color: rgba(0, 0, 0, 0) !important;;
+	background-color: unset !important;;
+	color: unset !important;;
+	cursor: unset !important;;
+}
+
+.tool_label::after {
+	border-color: rgba(0, 0, 0, 0) !important;;
+	background-color: unset !important;;
+	color: unset !important;;
+	cursor: unset !important;;
+	content: unset !important;;
+}
+
+.tool_label_span {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.tool_label_select {
+	width: auto;
+}
+</style>
 </head>
 
 <li id="tool_label" class="tool_label">
@@ -16,7 +41,6 @@
 	</span>
 </li>
 
-<script src="/luci-static/resources/openclash/js/common.js?v=<%=plugin_version%>"></script>
 <script type="text/javascript">//<![CDATA[
 
 		var config_name = document.getElementById('cfg_name');
@@ -120,7 +144,7 @@
 
 	function restore_config(btn)
     {
-        btn.value    = '<%:Restore Default%>';
+        btn.value    = '<%:Restore Default Config%>';
         btn.disabled = true;
         var r = confirm("<%:Are you sure want to restore the default config?%>")
         if (r == true) {
@@ -139,4 +163,11 @@
         return false; 
     }
 	
+	function winOpen(url)
+	{
+		var winOpen = window.open(url);
+		if(winOpen == null || typeof(winOpen) == 'undefined'){
+			window.location.href=url;
+		}
+	}
 //]]></script>

@@ -17,7 +17,7 @@ uci -q commit firewall
 
 mkdir -p /etc/openclash/config
 mkdir -p /etc/openclash/proxy_provider
-mkdir -p /etc/openclash/rule_provider
+mkdir -p /etc/openclash/backup
 mkdir -p /etc/openclash/core
 mkdir -p /etc/openclash/history
 mkdir -p /usr/share/openclash/backup/overwrite
@@ -144,7 +144,6 @@ cp -f "/etc/openclash/custom/openclash_custom_overwrite.sh" "/usr/share/openclas
 cp -f "/etc/openclash/china_ip_route.ipset" "/usr/share/openclash/backup/china_ip_route.ipset" >/dev/null 2>&1
 cp -f "/etc/openclash/china_ip6_route.ipset" "/usr/share/openclash/backup/china_ip6_route.ipset" >/dev/null 2>&1
 cp -f "/etc/openclash/overwrite/default" "/usr/share/openclash/backup/overwrite/default" >/dev/null 2>&1
-cp -f "/etc/openclash/rule_provider/oc-cn-domain.mrs" "/usr/share/openclash/backup/oc-cn-domain.mrs" >/dev/null 2>&1
 
 #Restore
 if [ -f "/tmp/openclash.bak" ]; then
@@ -168,10 +167,8 @@ if [ -f "/tmp/openclash.bak" ]; then
 	cp -rf "/tmp/openclash/." "/etc/openclash/" >/dev/null 2>&1
 	#ui
 	if [ -d "/tmp/openclash_ui/" ]; then
-		if [ -d "/tmp/openclash_ui/metacubexd/" ] || [ -d "/tmp/openclash_ui/zashboard/" ] || [ -d "/tmp/openclash_ui/yacd/" ] || [ -d "/tmp/openclash_ui/dashboard/" ]; then
-			rm -rf "/usr/share/openclash/ui/" >/dev/null 2>&1
-			cp -rf "/tmp/openclash_ui/." "/usr/share/openclash/ui/" >/dev/null 2>&1
-		fi
+		rm -rf "/usr/share/openclash/ui/" >/dev/null 2>&1
+		cp -rf "/tmp/openclash_ui/." "/usr/share/openclash/ui/" >/dev/null 2>&1
 		rm -rf "/tmp/openclash_ui/" >/dev/null 2>&1
 	fi
 	#pac
@@ -179,10 +176,6 @@ if [ -f "/tmp/openclash.bak" ]; then
 		rm -rf "/www/luci-static/resources/openclash/pac/" >/dev/null 2>&1
 		cp -rf "/tmp/pac/." "/www/luci-static/resources/openclash/pac/" >/dev/null 2>&1
 		rm -rf "/tmp/pac/" >/dev/null 2>&1
-	fi
-	#oc-domain
-	if [ -f "/etc/openclash/rule_provider/oc-cn-domain.mrs" ]; then
-		cp -f "/usr/share/openclash/backup/oc-cn-domain.mrs" "/etc/openclash/rule_provider/oc-cn-domain.mrs" >/dev/null 2>&1
 	fi
 	rm -rf "/etc/openclash/openclash" >/dev/null 2>&1
 	rm -rf "/tmp/openclash" >/dev/null 2>&1
@@ -197,8 +190,10 @@ if [ -f "/tmp/openclash.bak" ]; then
 	rm -rf "/etc/openclash/custom/openclash_sniffing_ports_filter.yaml" >/dev/null 2>&1
 	rm -rf "/etc/openclash/custom/openclash_sniffing_port_filter.yaml" >/dev/null 2>&1
 	rm -rf "/etc/openclash/custom/openclash_sniffing_domain_filter.yaml" >/dev/null 2>&1
-	rm -rf "/etc/openclash/backup" >/dev/null 2>&1
 fi
+
+uci -q set openclash.config.enable=0
+uci -q commit openclash
 
 if [ -f "/usr/lib/lua/luci/model/network.lua" ]; then
    sed -i '/OpenClash Append/,/OpenClash Append End/d' "/usr/lib/lua/luci/model/network.lua" >/dev/null 2>&1
@@ -264,6 +259,6 @@ sed -i '/.*kB maximum content size*/c\export let HTTP_MAX_CONTENT = 1024*10240;	
 
 /etc/init.d/uhttpd restart >/dev/null 2>&1
 
-rm -rf /tmp/luci-indexcache /tmp/luci-indexcache.* /var/luci-indexcache /var/luci-indexcache.* >/dev/null 2>&1
-rm -rf /tmp/luci-modulecache /var/luci-modulecache >/dev/null 2>&1
+rm -f /tmp/luci-indexcache >/dev/null 2>&1
+rm -f /tmp/luci-indexcache.* >/dev/null 2>&1
 exit 0

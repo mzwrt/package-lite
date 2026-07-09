@@ -4,7 +4,6 @@
 local nixio = require "nixio"
 local jsonc = require "luci.jsonc"
 local util = require "luci.util"
-local fs = require "luci.openclash"
 
 if not nixio.fs.access("/usr/bin/base64") and not nixio.fs.access("/bin/base64") then
   os.exit(1)
@@ -15,8 +14,31 @@ if not file_path or not nixio.fs.access(file_path) then
   os.exit(1)
 end
 
+local function raw_base64_decode(str)
+  if not str or str == "" then return nil end
+
+  str = str:gsub("-", "+"):gsub("_", "/")
+
+  local padding = #str % 4
+  if padding > 0 then
+    str = str .. string.rep("=", 4 - padding)
+  end
+
+  local cmd = "printf '%s' '" .. str .. "' | base64 -d 2>/dev/null"
+  local f = io.popen(cmd, "r")
+  if not f then return nil end
+  local result = f:read("*a")
+  f:close()
+
+  if result and result ~= "" then
+    return result
+  end
+
+  return nil
+end
+
 local function base64_decode_subscription(str)
-  local result = fs.decode64(str)
+  local result = raw_base64_decode(str)
   if result and result:find("://") then
     return result
   end
@@ -104,7 +126,7 @@ local function get_server_from_url(line)
         original_body = original_body:match("([^#]+)") or original_body
 
         -- base64
-        local decoded = fs.decode64(original_body)
+        local decoded = raw_base64_decode(original_body)
         if decoded then
             -- V2RayN JSON
             local ok, data = pcall(jsonc.parse, decoded)
@@ -138,7 +160,7 @@ local function get_server_from_url(line)
         else
             -- ss://base64
             original_body = original_body:match("([^#]+)") or original_body
-            local decoded = fs.decode64(original_body)
+            local decoded = raw_base64_decode(original_body)
             if decoded then
                 server = decoded:match("@([^:/]+)")
             else
@@ -148,7 +170,7 @@ local function get_server_from_url(line)
 
     elseif scheme == "ssr" then
         original_body = original_body:match("([^#]+)") or original_body
-        local decoded = fs.decode64(original_body)
+        local decoded = raw_base64_decode(original_body)
         if decoded then
             -- ssr://host:port:protocol:method:obfs:urlsafebase64pass/?params
             local before_query = decoded:match("^([^/?]+)")
@@ -192,7 +214,7 @@ local function get_server_from_url(line)
 
     -- fallback
     if not server then
-        local body_to_parse = fs.decode64(original_body) or original_body
+        local body_to_parse = raw_base64_decode(original_body) or original_body
         server = body_to_parse:match("@([^:/]+)") or  -- user@host
                  body_to_parse:match("([^:/]+)") or   -- host
                  body_to_parse:match("//([^:/]+)")    -- //host

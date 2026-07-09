@@ -53,10 +53,9 @@
       FILE_PATH_INCLUDE="metacubexd-gh-pages"
 	fi
 
-   DOWNLOAD_FILE_CURL "$DOWNLOAD_PATH" "$DASH_FILE_DIR" "$UNPACK_FILE_DIR"
-   DOWNLOAD_RESULT=$?
+   DOWNLOAD_FILE_CURL "$DOWNLOAD_PATH" "$DASH_FILE_DIR"
 
-   if [ "$DOWNLOAD_RESULT" -eq 0 ] && [ -s "$DASH_FILE_DIR" ]; then
+   if [ "$?" -eq 0 ] && [ -s "$DASH_FILE_DIR" ]; then
       unzip -qt "$DASH_FILE_DIR" >/dev/null 2>&1
       if [ "$?" -eq "0" ]; then
          cp -rf  "$UNPACK_FILE_DIR".  "$BACKUP_FILE_DIR" >/dev/null 2>&1
@@ -69,7 +68,7 @@
             rm -rf "$DASH_FILE_TMP" >/dev/null 2>&1
             LOG_OUT "Control Panel【$DASH_NAME - $DASH_TYPE】Download Successful!" && SLOG_CLEAN
             del_lock
-            exit 0
+            exit 1
          else
             LOG_OUT "Control Panel【$DASH_NAME - $DASH_TYPE】Unzip Error!" && SLOG_CLEAN
             cp -rf  "$BACKUP_FILE_DIR".  "$UNPACK_FILE_DIR" >/dev/null 2>&1
@@ -88,10 +87,6 @@
          del_lock
          exit 2
       fi
-   elif [ "$DOWNLOAD_RESULT" -eq 2 ]; then
-      LOG_OUT "Control Panel【$DASH_NAME - $DASH_TYPE】Download Successful!" && SLOG_CLEAN
-      del_lock
-      exit 0
    else
       cp -rf  "$BACKUP_FILE_DIR".  "$UNPACK_FILE_DIR" >/dev/null 2>&1
       rm -rf "$BACKUP_FILE_DIR" >/dev/null 2>&1
@@ -99,7 +94,7 @@
       rm -rf "$DASH_FILE_TMP" >/dev/null 2>&1
       LOG_OUT "Control Panel【$DASH_NAME - $DASH_TYPE】Download Error!" && SLOG_CLEAN
       del_lock
-      exit 1
+      exit 0
    fi
 
    del_lock
