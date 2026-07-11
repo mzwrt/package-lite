@@ -117,3 +117,13 @@ return baseclass.extend({
 		// CPU temperature
 		if (cpuTemp !== null) {
 			fields.push(_('CPU 温度'));
+			fields.push(cpuTemp + ' °C');
+		}
+
+		if (wifi24Temp !== null) {
+			fields.push(_('2.4G 温度'));
+			fields.push(wifi24Temp + ' °C');
+		}
+
+		if (wifi5Temp !== null) {
+			fields.push(_('5G 温度'));
