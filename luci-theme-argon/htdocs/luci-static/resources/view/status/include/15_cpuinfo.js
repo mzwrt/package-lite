@@ -127,3 +127,24 @@ return baseclass.extend({
 
 		if (wifi5Temp !== null) {
 			fields.push(_('5G 温度'));
+			fields.push(wifi5Temp + ' °C');
+		}
+
+		if (fields.length === 0) {
+			return null;
+		}
+
+		var table = E('table', { 'class': 'table' });
+
+		for (var i = 0; i < fields.length; i += 2) {
+			table.appendChild(E('tr', { 'class': 'tr' }, [
+				E('td', { 'class': 'td left', 'width': '33%' }, [ fields[i] ]),
+				E('td', { 'class': 'td left' }, [
+					(fields[i + 1] !== null) ? fields[i + 1] : '?'
+				])
+			]));
+		}
+
+		return table;
+	}
+});
