@@ -153,7 +153,7 @@
 +});
 --- a/luci-theme-argon/root/usr/share/rpcd/acl.d/luci-theme-argon.json
 +++ b/luci-theme-argon/root/usr/share/rpcd/acl.d/luci-theme-argon.json
-@@ -2,7 +2,13 @@
+@@ -2,7 +2,12 @@
      "luci-theme-argon": {
          "description": "Grant UCI access for luci-theme-argon",
          "read": {
