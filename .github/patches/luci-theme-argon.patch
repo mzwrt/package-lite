@@ -133,7 +133,6 @@
 +			fields.push(wifi5Temp + ' °C');
 +		}
 +
-+
 +		if (fields.length === 0) {
 +			return null;
 +		}
@@ -165,3 +164,6 @@
 +                "/bin/cat /sys/class/hwmon/hwmon*/temp1_input": [ "exec" ],
 +                "/usr/bin/head -1 /proc/stat": [ "exec" ]
 +            }
+         }
+     }
+ }
