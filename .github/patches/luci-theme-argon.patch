@@ -1,6 +1,6 @@
 --- a/luci-theme-argon/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
 +++ b/luci-theme-argon/htdocs/luci-static/resources/view/status/include/15_cpuinfo.js
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,129 @@
 +'use strict';
 +'require baseclass';
 +'require fs';
