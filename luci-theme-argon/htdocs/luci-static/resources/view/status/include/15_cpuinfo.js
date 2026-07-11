@@ -28,6 +28,8 @@ return baseclass.extend({
 	load: function() {
 		return Promise.all([
 			L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone0/temp']), null),
+			L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/hwmon/hwmon1/temp1_input']), null),
+			L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/hwmon/hwmon2/temp1_input']), null),
 			L.resolveDefault(fs.exec('/usr/bin/head', ['-1', '/proc/stat']), null),
 			L.resolveDefault(callSystemInfo(), {})
 		]);
@@ -35,13 +37,32 @@ return baseclass.extend({
 
 	render: function(data) {
 		var tempResult = data[0],
-		    statResult = data[1],
-		    systemInfo = data[2];
+		    wifi24Result = data[1],
+		    wifi5Result  = data[2],
+		    statResult   = data[3],
+		    systemInfo   = data[4];
 
 		var fields = [];
 
 		// Parse CPU temperature
 		var cpuTemp = null;
+		var wifi24Temp = null;
+		var wifi5Temp = null;
+
+		if (wifi24Result && wifi24Result.code === 0 && wifi24Result.stdout) {
+			var temp = parseInt(wifi24Result.stdout.trim());
+
+		if (!isNaN(temp) && temp > 0)
+			wifi24Temp = (temp / 1000).toFixed(1);
+		}
+
+		if (wifi5Result && wifi5Result.code === 0 && wifi5Result.stdout) {
+			var temp = parseInt(wifi5Result.stdout.trim());
+
+		if (!isNaN(temp) && temp > 0)
+			wifi5Temp = (temp / 1000).toFixed(1);
+		}
+
 		if (tempResult && tempResult.code === 0 && tempResult.stdout) {
 			var temp = parseInt(tempResult.stdout.trim());
 			if (!isNaN(temp) && temp > 0) {
@@ -96,24 +117,3 @@ return baseclass.extend({
 		// CPU temperature
 		if (cpuTemp !== null) {
 			fields.push(_('CPU 温度'));
-			fields.push(cpuTemp + ' °C');
-		}
-
-		if (fields.length === 0) {
-			return null;
-		}
-
-		var table = E('table', { 'class': 'table' });
-
-		for (var i = 0; i < fields.length; i += 2) {
-			table.appendChild(E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td left', 'width': '33%' }, [ fields[i] ]),
-				E('td', { 'class': 'td left' }, [
-					(fields[i + 1] !== null) ? fields[i + 1] : '?'
-				])
-			]));
-		}
-
-		return table;
-	}
-});
