@@ -8,7 +8,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=urllogger
-PKG_VERSION:=0.0.1
+PKG_VERSION:=0.0.2
 PKG_RELEASE:=1
 
 PKG_SOURCE_VERSION:=$(PKG_VERSION)-$(PKG_RELEASE)
@@ -19,7 +19,7 @@ include $(INCLUDE_DIR)/package.mk
 
 define Package/urllogger
   CATEGORY:=X
-  DEPENDS:=+kmod-natflow
+  DEPENDS:=+kmod-natflow +busybox
   TITLE:=urllogger
 endef
 
