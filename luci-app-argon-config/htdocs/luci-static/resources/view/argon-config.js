@@ -1,5 +1,6 @@
 'use strict';
 'require form';
+'require argon.branding as branding';
 'require fs';
 'require rpc';
 'require uci';
@@ -45,7 +46,8 @@ return view.extend({
 			fs.list(bg_path).catch(function(e) {
 				ui.addNotification(null, E('p', _('Failed to list background files: %s.').format(e.message)));
 				return [];
-			})
+			}),
+			branding.load()
 		]);
 	},
 
@@ -58,6 +60,39 @@ return view.extend({
 		s = m.section(form.TypedSection, 'global', _('Theme configuration'));
 		s.addremove = false;
 		s.anonymous = true;
+
+		var loginStyles = {
+			classic: _('Classic sidebar'),
+			centered: _('Centered card')
+		};
+		o = s.option(form.ListValue, 'login_style', _('Login page style'),
+			_('Applies the next time you open the login page.'));
+		o.value('classic', loginStyles.classic);
+		o.value('centered', loginStyles.centered);
+		o.default = 'classic';
+		o.rmempty = false;
+		o.renderWidget = function(section_id, option_index, cfgvalue) {
+			var style = cfgvalue === 'centered' ? 'centered' : 'classic';
+			return E('div', {}, [
+				this.super('renderWidget', [section_id, option_index, style]),
+				E('img', {
+					'id': this.cbid(section_id) + '-preview',
+					'src': L.resource('argon-config/login-' + style + '.svg'),
+					'alt': loginStyles[style],
+					'width': 320,
+					'height': 180,
+					'style': 'display:block;max-width:100%;height:auto;margin-top:1rem;border-radius:.5rem'
+				})
+			]);
+		};
+		o.onchange = function(ev, section_id, value) {
+			var preview = document.getElementById(this.cbid(section_id) + '-preview');
+			var style = value === 'centered' ? 'centered' : 'classic';
+			if (preview) {
+				preview.src = L.resource('argon-config/login-' + style + '.svg');
+				preview.alt = loginStyles[style];
+			}
+		};
 
 		o = s.option(form.ListValue, 'online_wallpaper', _('Wallpaper source'));
 		o.value('none', _('Built-in'));
@@ -131,6 +166,9 @@ return view.extend({
 				ui.addNotification(null, E('p', e.message));
 			});
 		};
+
+		s = m.section(form.TypedSection);
+		s.render = function() { return branding.render(this.map, data[3]); };
 
 		s = m.section(form.TypedSection, null, _('Upload background (available space: %1024.2mB)')
 			.format(data[1].avail * 1024),
