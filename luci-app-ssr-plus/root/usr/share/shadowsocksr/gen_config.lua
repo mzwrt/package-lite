@@ -363,6 +363,34 @@ function outbound:handleIndex(index)
 		trojan = function()
 			trojan_shadowsocks()
 		end,
+		tuic = function()
+            local version = tonumber(server.xray_tuic_version) or 5
+            local alpn = {}
+            for value in (server.tuic_alpn or ""):gmatch("[^,]+") do alpn[#alpn + 1] = value end
+            if #alpn == 0 then alpn = {"h3"} end
+            outbound_settings = {
+                address = server.server, port = tonumber(server.server_port), version = version,
+                token = version == 4 and server.xray_tuic_token or nil,
+                uuid = version == 5 and server.tuic_uuid or nil,
+                password = version == 5 and server.tuic_passwd or nil,
+                serverName = server.tls_host, certificateFile = server.xray_tuic_ca,
+                allowInsecure = server.insecure == "1",
+                alpn = alpn,
+                congestionControl = server.congestion_control or "cubic",
+                udpRelayMode = server.udp_relay_mode or "native",
+                heartbeatInterval = (tonumber(server.heartbeat) or 10) * 1000,
+                requestTimeout = (tonumber(server.timeout) or 8) * 1000,
+                reduceRtt = server.zero_rtt_handshake == "1"
+            }
+        end,
+		shadowsocksr = function()
+            outbound_settings = {
+                address = server.server, port = tonumber(server.server_port),
+                password = server.password, method = server.ssr_method or "aes-128-cfb",
+                protocol = server.ssr_protocol or "origin", protocolParam = server.protocol_param,
+                obfs = server.ssr_obfs or "plain", obfsParam = server.obfs_param
+            }
+        end,
 		shadowsocks = function()
 			trojan_shadowsocks()
 		end,
@@ -375,6 +403,19 @@ function outbound:handleIndex(index)
 		wireguard = function()
 			wireguard()
 		end,
+		naive = function()
+            outbound_settings = {
+                address = server.server, port = tonumber(server.server_port),
+                username = server.username, password = server.password,
+                serverName = server.tls_host,
+                certificateFile = server.naive_certificate_file,
+                quic = server.naive_quic == "1",
+                udpOverTcp = server.naive_udp_over_tcp == "1",
+                insecureConcurrency = tonumber(server.naive_concurrency),
+                quicCongestionControl = server.naive_quic_congestion,
+                echConfigList = server.naive_ech_config
+            }
+        end,
 		anytls = function()
 			outbound_settings = {
 				address = server.server,
@@ -877,6 +918,14 @@ Xray.outbounds = {
 		} or nil
 	}
 }
+
+-- Naive and TUIC own TLS/multiplexing; SSR owns obfuscation and native UDP.
+-- Preserve Xray socket marks and dialer chains.
+if server.v2ray_protocol == "naive" or server.v2ray_protocol == "shadowsocksr" or server.v2ray_protocol == "tuic" then
+    local ob = Xray.outbounds[1]
+    ob.streamSettings = { network = "raw", sockopt = ob.streamSettings.sockopt }
+    ob.mux = nil
+end
 
 if xray_builtin_dns then
 	table.insert(Xray.outbounds, {
