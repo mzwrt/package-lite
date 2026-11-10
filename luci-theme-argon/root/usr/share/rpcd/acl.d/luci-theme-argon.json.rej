@@ -1,10 +1,13 @@
 --- luci-theme-argon/root/usr/share/rpcd/acl.d/luci-theme-argon.json
 +++ luci-theme-argon/root/usr/share/rpcd/acl.d/luci-theme-argon.json
-@@ -2,7 +2,12 @@
+@@ -2,7 +2,15 @@
      "luci-theme-argon": {
          "description": "Grant UCI access for luci-theme-argon",
          "read": {
 -            "uci": [ "argon" ]
++            "ubus": {
++                "luci.argon_appearance": [ "get" ]
++            },
 +            "uci": [ "argon" ],
 +            "file": {
 +                "/bin/cat /sys/class/thermal/thermal_zone*/temp": [ "exec" ],

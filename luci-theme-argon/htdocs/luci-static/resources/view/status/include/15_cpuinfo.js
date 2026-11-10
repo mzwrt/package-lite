@@ -1,17 +1,17 @@
 'use strict';
 'require baseclass';
 'require fs';
-'require rpc';
-
-var callSystemInfo = rpc.declare({
-	object: 'system',
-	method: 'info'
-});
 
 function progressbar(value, max) {
-	var vn = parseInt(value) || 0,
-	    mn = parseInt(max) || 100,
-	    pc = Math.floor((100 / mn) * vn);
+	var vn = parseInt(value, 10),
+	    mn = parseInt(max, 10) || 100;
+
+	if (!isFinite(vn))
+		vn = 0;
+
+	vn = Math.max(0, Math.min(vn, mn));
+
+	var pc = Math.floor((100 / mn) * vn);
 
 	return E('div', {
 		'class': 'cbi-progressbar',
@@ -19,129 +19,109 @@ function progressbar(value, max) {
 	}, E('div', { 'style': 'width:%.2f%%'.format(pc) }));
 }
 
+function parseTemperature(result) {
+	if (!result || result.code !== 0 || !result.stdout)
+		return null;
+
+	var value = parseInt(result.stdout.trim(), 10);
+
+	if (!isFinite(value) || value <= 0)
+		return null;
+
+	return (value / 1000).toFixed(1);
+}
+
+function parseCpuStat(result) {
+	if (!result || result.code !== 0 || !result.stdout)
+		return null;
+
+	var line = result.stdout.trim();
+
+	if (line.indexOf('cpu ') !== 0)
+		return null;
+
+	var parts = line.split(/\s+/);
+
+	if (parts.length < 9)
+		return null;
+
+	var values = parts.slice(1, 9).map(function(value) {
+		return parseInt(value, 10);
+	});
+
+	for (var i = 0; i < values.length; i++) {
+		if (!isFinite(values[i]) || values[i] < 0)
+			return null;
+	}
+
+	var idleTime = values[3] + values[4];
+	var totalTime = values.reduce(function(sum, value) {
+		return sum + value;
+	}, 0);
+
+	return {
+		idle: idleTime,
+		total: totalTime
+	};
+}
+
 return baseclass.extend({
 	title: _('CPU'),
 
-	prevIdle: 0,
-	prevTotal: 0,
+	prevIdle: null,
+	prevTotal: null,
 
 	load: function() {
 		return Promise.all([
 			L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/thermal/thermal_zone0/temp']), null),
 			L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/hwmon/hwmon1/temp1_input']), null),
 			L.resolveDefault(fs.exec('/bin/cat', ['/sys/class/hwmon/hwmon2/temp1_input']), null),
-			L.resolveDefault(fs.exec('/usr/bin/head', ['-1', '/proc/stat']), null),
-			L.resolveDefault(callSystemInfo(), {})
+			L.resolveDefault(fs.exec('/usr/bin/head', ['-1', '/proc/stat']), null)
 		]);
 	},
 
 	render: function(data) {
-		var tempResult = data[0],
-		    wifi24Result = data[1],
-		    wifi5Result  = data[2],
-		    statResult   = data[3],
-		    systemInfo   = data[4];
+		var cpuTemp = parseTemperature(data[0]);
+		var wifi24Temp = parseTemperature(data[1]);
+		var wifi5Temp = parseTemperature(data[2]);
+		var stat = parseCpuStat(data[3]);
+		var cpuUsage = null;
+
+		if (stat !== null) {
+			if (this.prevTotal !== null && stat.total > this.prevTotal) {
+				var diffTotal = stat.total - this.prevTotal;
+				var diffIdle = stat.idle - this.prevIdle;
+
+				if (diffIdle >= 0) {
+					cpuUsage = Math.round(100 * (1 - diffIdle / diffTotal));
+					cpuUsage = Math.max(0, Math.min(cpuUsage, 100));
+				}
+			}
+
+			this.prevIdle = stat.idle;
+			this.prevTotal = stat.total;
+		}
 
 		var fields = [];
 
-		// Parse CPU temperature
-		var cpuTemp = null;
-		var wifi24Temp = null;
-		var wifi5Temp = null;
+		fields.push(_('CPU usage (%)'));
+		fields.push(cpuUsage !== null ? progressbar(cpuUsage, 100) : '--');
 
-		if (wifi24Result && wifi24Result.code === 0 && wifi24Result.stdout) {
-			var temp = parseInt(wifi24Result.stdout.trim());
+		fields.push(_('CPU 温度'));
+		fields.push(cpuTemp !== null ? cpuTemp + ' °C' : '--');
 
-		if (!isNaN(temp) && temp > 0)
-			wifi24Temp = (temp / 1000).toFixed(1);
-		}
+		fields.push(_('2.4G 温度'));
+		fields.push(wifi24Temp !== null ? wifi24Temp + ' °C' : '--');
 
-		if (wifi5Result && wifi5Result.code === 0 && wifi5Result.stdout) {
-			var temp = parseInt(wifi5Result.stdout.trim());
-
-		if (!isNaN(temp) && temp > 0)
-			wifi5Temp = (temp / 1000).toFixed(1);
-		}
-
-		if (tempResult && tempResult.code === 0 && tempResult.stdout) {
-			var temp = parseInt(tempResult.stdout.trim());
-			if (!isNaN(temp) && temp > 0) {
-				cpuTemp = (temp / 1000).toFixed(1);
-			}
-		}
-
-		// Parse CPU usage
-		var cpuUsage = null;
-		if (statResult && statResult.code === 0 && statResult.stdout) {
-			var line = statResult.stdout.trim();
-			if (line.indexOf('cpu ') === 0) {
-				var parts = line.split(/\s+/);
-				var user = parseInt(parts[1]) || 0;
-				var nice = parseInt(parts[2]) || 0;
-				var system = parseInt(parts[3]) || 0;
-				var idle = parseInt(parts[4]) || 0;
-				var iowait = parseInt(parts[5]) || 0;
-				var irq = parseInt(parts[6]) || 0;
-				var softirq = parseInt(parts[7]) || 0;
-				var steal = parseInt(parts[8]) || 0;
-
-				var idleTime = idle + iowait;
-				var totalTime = user + nice + system + idle + iowait + irq + softirq + steal;
-
-				var diffIdle = idleTime - this.prevIdle;
-				var diffTotal = totalTime - this.prevTotal;
-
-				if (diffTotal > 0 && this.prevTotal > 0) {
-					cpuUsage = Math.round((1 - diffIdle / diffTotal) * 100);
-				} else if (this.prevTotal === 0) {
-					cpuUsage = 0;
-				}
-
-				this.prevIdle = idleTime;
-				this.prevTotal = totalTime;
-			}
-		}
-
-		// Fallback: use load average
-		if (cpuUsage === null && systemInfo && systemInfo.load) {
-			var load1 = systemInfo.load[0] / 65535.0;
-			cpuUsage = Math.min(Math.round(load1 * 100), 100);
-		}
-
-		// CPU usage
-		if (cpuUsage !== null) {
-			fields.push(_('CPU usage (%)'));
-			fields.push(progressbar(cpuUsage, 100));
-		}
-
-		// CPU temperature
-		if (cpuTemp !== null) {
-			fields.push(_('CPU 温度'));
-			fields.push(cpuTemp + ' °C');
-		}
-
-		if (wifi24Temp !== null) {
-			fields.push(_('2.4G 温度'));
-			fields.push(wifi24Temp + ' °C');
-		}
-
-		if (wifi5Temp !== null) {
-			fields.push(_('5G 温度'));
-			fields.push(wifi5Temp + ' °C');
-		}
-
-		if (fields.length === 0) {
-			return null;
-		}
+		fields.push(_('5G 温度'));
+		fields.push(wifi5Temp !== null ? wifi5Temp + ' °C' : '--');
 
 		var table = E('table', { 'class': 'table' });
 
 		for (var i = 0; i < fields.length; i += 2) {
 			table.appendChild(E('tr', { 'class': 'tr' }, [
 				E('td', { 'class': 'td left', 'width': '33%' }, [ fields[i] ]),
-				E('td', { 'class': 'td left' }, [
-					(fields[i + 1] !== null) ? fields[i + 1] : '?'
-				])
+				E('td', { 'class': 'td left' }, [ fields[i + 1] ])
 			]));
 		}
 
